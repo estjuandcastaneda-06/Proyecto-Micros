@@ -1,0 +1,252 @@
+/* ============================================================
+   COCINA INTELIGENTE - ESP32
+   ============================================================ */
+
+#include <LiquidCrystal.h>
+#include <DHT.h>
+#include <ESP32Servo.h>
+
+// ==================== PINES ====================
+#define DHTPIN 4
+#define DHTTYPE DHT11
+
+#define LED_ESTUFA 27
+#define INTERRUPTOR_ESTUFA 14
+#define SERVO_PIN 18
+#define LED_NEVERA 19
+#define INTERRUPTOR_NEVERA 5
+#define PIN_VENTILADOR 26
+
+#define LCD_RS 21
+#define LCD_E 22
+#define LCD_D4 23
+#define LCD_D5 25
+#define LCD_D6 32
+#define LCD_D7 33
+
+// Temperatura para ENCENDER ventilador
+#define TEMP_ENCENDER 28.0
+
+// Temperatura para APAGAR ventilador
+#define TEMP_APAGAR 27.0
+
+// Tiempo mínimo entre lecturas del DHT11
+#define INTERVALO_DHT 2500
+
+DHT dht(DHTPIN, DHTTYPE);
+
+LiquidCrystal lcd(
+  LCD_RS,
+  LCD_E,
+  LCD_D4,
+  LCD_D5,
+  LCD_D6,
+  LCD_D7
+);
+
+Servo servoNevera;
+
+unsigned long ultimaLecturaDHT = 0;
+bool ventiladorEncendido = false;
+
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(PIN_VENTILADOR, OUTPUT);
+  digitalWrite(PIN_VENTILADOR, LOW);
+
+
+  pinMode(LED_ESTUFA, OUTPUT);
+
+  pinMode(
+    INTERRUPTOR_ESTUFA,
+    INPUT_PULLUP
+  );
+
+  digitalWrite(LED_ESTUFA, LOW);
+
+  pinMode(LED_NEVERA, OUTPUT);
+
+  pinMode(
+    INTERRUPTOR_NEVERA,
+    INPUT_PULLUP
+  );
+
+  digitalWrite(LED_NEVERA, LOW);
+
+  dht.begin();
+
+  lcd.begin(16, 2);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Cocina");
+  lcd.setCursor(0, 1);
+  lcd.print("Iniciando...");
+
+  servoNevera.setPeriodHertz(50);
+
+  servoNevera.attach(
+    SERVO_PIN,
+    500,
+    2400
+  );
+
+  // Nevera cerrada
+  servoNevera.write(90);
+
+
+  delay(2000);
+
+  lcd.clear();
+
+  Serial.println("--------------------------------");
+  Serial.println(" SISTEMA DE COCINA INTELIGENTE ");
+  Serial.println("--------------------------------");
+  Serial.println("DHT11 iniciado");
+  Serial.println("Ventilador APAGADO");
+  Serial.println("Sistema listo");
+}
+
+void loop() {
+
+  bool estufaEncendida =
+    (digitalRead(INTERRUPTOR_ESTUFA) == LOW);
+
+  if (estufaEncendida) {
+
+    digitalWrite(LED_ESTUFA, HIGH);
+
+  } else {
+
+    digitalWrite(LED_ESTUFA, LOW);
+  }
+
+  bool neveraAbierta =
+    (digitalRead(INTERRUPTOR_NEVERA) == LOW);
+
+
+  if (neveraAbierta) {
+
+    digitalWrite(LED_NEVERA, HIGH);
+
+    servoNevera.write(180);
+
+  } else {
+
+    digitalWrite(LED_NEVERA, LOW);
+
+    servoNevera.write(90);
+  }
+
+  if (
+    millis() - ultimaLecturaDHT >=
+    INTERVALO_DHT
+  ) {
+
+    ultimaLecturaDHT = millis();
+
+    float humedad = dht.readHumidity();
+    float temperatura = dht.readTemperature();
+
+    if (
+      isnan(temperatura) ||
+      isnan(humedad)
+    ) {
+
+      Serial.println(
+        "ERROR: No se pudo leer el DHT11"
+      );
+
+      ventiladorEncendido = false;
+
+      digitalWrite(
+        PIN_VENTILADOR,
+        LOW
+      );
+
+      return;
+    }
+
+    Serial.print("Temperatura: ");
+    Serial.print(temperatura, 1);
+    Serial.print(" C | Humedad: ");
+    Serial.print(humedad, 1);
+    Serial.print(" % | ");
+
+    /*
+       
+       Si T >= 28 °C
+       → ventilador ENCENDIDO
+
+       Si T <= 27 °C
+       → ventilador APAGADO
+
+       Entre 27 y 28 °C
+       → mantiene el estado anterior
+    */
+
+
+    if (!ventiladorEncendido &&
+        temperatura >= TEMP_ENCENDER) {
+
+      ventiladorEncendido = true;
+
+    }
+
+
+    if (ventiladorEncendido &&
+        temperatura <= TEMP_APAGAR) {
+
+      ventiladorEncendido = false;
+
+    }
+
+    if (ventiladorEncendido) {
+
+      digitalWrite(
+        PIN_VENTILADOR,
+        HIGH
+      );
+
+      Serial.println(
+        "VENTILADOR: ENCENDIDO"
+      );
+
+    } else {
+
+      digitalWrite(
+        PIN_VENTILADOR,
+        LOW
+      );
+
+      Serial.println(
+        "VENTILADOR: APAGADO"
+      );
+    }
+
+    lcd.setCursor(0, 0);
+
+    lcd.print("Temp: ");
+    lcd.print(temperatura, 1);
+    lcd.print((char)223);
+    lcd.print("C   ");
+
+
+    lcd.setCursor(0, 1);
+
+    lcd.print("Hum: ");
+    lcd.print(humedad, 1);
+    lcd.print("% ");
+
+    if (ventiladorEncendido) {
+
+      lcd.print("F:ON ");
+
+    } else {
+
+      lcd.print("F:OFF");
+    }
+  }
+}
